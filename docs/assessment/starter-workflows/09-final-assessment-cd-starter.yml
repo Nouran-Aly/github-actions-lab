@@ -3,7 +3,7 @@
 #
 # This starter is intentionally incomplete.
 # It is meant to guide your thinking, not to run successfully as-is.
-#
+
 # Assessment target for this workflow:
 # - run after trusted code reaches `main`
 # - build one exact release image
