@@ -58,9 +58,16 @@ jobs:
           load: true
           tags: ${{ env.PR_SCAN_IMAGE }}
 
+      # - name: Run Trivy image scan
+      #   uses: aquasecurity/trivy-action@master
+      #   with:
+      #     input: ${{ env.PR_SCAN_IMAGE }}
+      #     format: sarif
+      #     output: trivy-image-results.sarif
+ 
       - name: Run Trivy image scan
-        uses: aquasecurity/trivy-action@master
+        uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25  # v0.36.0
         with:
-          input: ${{ env.PR_SCAN_IMAGE }}
+          image-ref: ${{ env.PR_SCAN_IMAGE }}
           format: sarif
           output: trivy-image-results.sarif
