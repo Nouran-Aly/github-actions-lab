@@ -77,6 +77,18 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
+      - name: Debug SSH key format (temporary, remove after)
+        run: |
+          echo "${{ secrets.DEPLOY_SSH_KEY }}" > /tmp/debug_key.pem
+          echo "Line count:"
+          wc -l /tmp/debug_key.pem
+          echo "First line:"
+          head -1 /tmp/debug_key.pem
+          echo "Last line:"
+          tail -1 /tmp/debug_key.pem
+          echo "Checking for carriage returns:"
+          cat -A /tmp/debug_key.pem | grep -c '\^M' || echo "0 found"
+    
       - name: Deploy image over SSH
         uses: appleboy/ssh-action@v1.0.3
         env:
