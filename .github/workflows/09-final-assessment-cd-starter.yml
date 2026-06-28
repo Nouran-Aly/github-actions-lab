@@ -69,3 +69,95 @@ jobs:
           context: .
           push: true
           tags: ${{ steps.image-ref.outputs.value }}
+
+  deploy-to-host:
+    name: Deploy to remote host
+    needs:
+      - build-and-push
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Deploy image over SSH
+        uses: appleboy/ssh-action@v1.0.3
+        env:
+          REGISTRY_HOST: ${{ secrets.REGISTRY_HOST }}
+          AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          AWS_REGION: us-east-1
+          IMAGE_TAG: ${{ needs.build-and-push.outputs.image_tag }}
+          IMAGE_REF: ${{ needs.build-and-push.outputs.image_ref }}
+          COMMIT_SHA: ${{ github.sha }}
+          APP_PORT: ${{ env.APP_PORT }}
+        with:
+          host: ${{ secrets.DEPLOY_HOST }}
+          username: ${{ secrets.DEPLOY_USER }}
+          key: ${{ secrets.DEPLOY_SSH_KEY }}
+          envs: REGISTRY_HOST,AWS_ACCESS_KEY_ID,AWS_SECRET_ACCESS_KEY,AWS_REGION,IMAGE_TAG,IMAGE_REF,COMMIT_SHA,APP_PORT
+          script: |
+            set -e
+            echo "Checking Docker availability..."
+            docker --version || (echo "Docker is not available" && exit 1)
+
+            echo "Checking AWS CLI availability..."
+            aws --version || (echo "AWS CLI is not available" && exit 1)
+
+            echo "Logging in to ECR..."
+            aws ecr get-login-password --region "$AWS_REGION" | docker login --username AWS --password-stdin "$REGISTRY_HOST"
+
+            echo "Pulling image $IMAGE_REF..."
+            docker pull "$IMAGE_REF"
+
+            echo "Stopping and removing old container..."
+            docker stop tiny-health-container || true
+            docker rm tiny-health-container || true
+
+            echo "Starting new container..."
+            docker run -d \
+              --name tiny-health-container \
+              -p "${APP_PORT}:${APP_PORT}" \
+              -e "APP_ENV=production" \
+              -e "APP_VERSION=${IMAGE_TAG}" \
+              -e "COMMIT_SHA=${COMMIT_SHA}" \
+              -e "DEPLOYED_AT=$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
+              -e "IMAGE_TAG=${IMAGE_TAG}" \
+              -e "DEPLOY_MODE=github-actions" \
+              "$IMAGE_REF"
+
+            echo "Waiting for app to be healthy..."
+            for attempt in 1 2 3 4 5; do
+              if curl --fail --silent "http://127.0.0.1:${APP_PORT}/health" > /dev/null 2>&1; then
+                echo "App is healthy"
+                break
+              fi
+              echo "Attempt $attempt: Waiting for app to be ready..."
+              sleep 2
+            done
+
+            echo "Checking version..."
+            curl --fail --silent "http://127.0.0.1:${APP_PORT}/version" | head -c 200
+            echo ""
+
+            echo "Checking status..."
+            curl --fail --silent "http://127.0.0.1:${APP_PORT}/status" | head -c 200
+            echo ""
+
+      - name: Validate deployed app from GitHub Actions
+        run: |
+          echo "Validating deployed app from runner..."
+
+          DEPLOY_HOST="${{ secrets.DEPLOY_HOST }}"
+          APP_PORT="${{ env.APP_PORT }}"
+
+          echo "Health check..."
+          curl --fail --silent "http://${DEPLOY_HOST}:${APP_PORT}/health"
+          echo ""
+
+          echo "Version check..."
+          curl --fail --silent "http://${DEPLOY_HOST}:${APP_PORT}/version"
+          echo ""
+
+          echo "Status check..."
+          curl --fail --silent "http://${DEPLOY_HOST}:${APP_PORT}/status"
+          echo ""
+
+          echo "Deployment validation complete!"
